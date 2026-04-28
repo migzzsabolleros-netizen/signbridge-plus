@@ -13,7 +13,7 @@ face = mp_face.FaceMesh(min_detection_confidence=0.7)
 pose = mp_pose.Pose(min_detection_confidence=0.7)
 
 # Start webcam
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 while cap.isOpened():
     ret, frame = cap.read()
