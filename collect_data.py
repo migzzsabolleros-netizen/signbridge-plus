@@ -5,11 +5,7 @@ import os
 import time
 
 # ---- SETTINGS ----
-SIGNS =<<<<<<< HEAD
-SIGNS = ['pamilya','lola','lolo','mama','papa']
-=======
-SIGNS = ['a', 'b', 'c', 'd', 'e']
->>>>>>> 2c383ee2c00e73545b0df12cd499f5186665dc52
+SIGNS = ['f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z']
 SEQUENCES = 60
 SEQUENCE_LENGTH = 30
 
@@ -46,17 +42,15 @@ def extract_keypoints(hand_results, face_results, pose_results):
         pose_kp = np.array([[lm.x, lm.y, lm.z, lm.visibility]
                              for lm in pose_results.pose_landmarks.landmark]).flatten()
 
-    face_kp = np.zeros(12)  # only 4 key points
-
+    face_kp = np.zeros(1404)
     if face_results.multi_face_landmarks:
-    landmarks = face_results.multi_face_landmarks[0].landmark
-    
-    selected = [1, 152, 234, 454]  # nose, chin, cheeks
-    face_kp = np.array([[landmarks[i].x, landmarks[i].y, landmarks[i].z] 
-                        for i in selected]).flatten()
+        face_kp = np.array([[lm.x, lm.y, lm.z]
+                             for lm in face_results.multi_face_landmarks[0].landmark]).flatten()
 
-cap = cv2.VideoCapture(0)
+    return np.concatenate([lh, rh, pose_kp, face_kp])
 
+# ---- CAPTURE LOOP ----
+cap = cv2.VideoCapture(1)
 
 for sign_idx, sign in enumerate(SIGNS):
 
@@ -111,13 +105,10 @@ for sign_idx, sign in enumerate(SIGNS):
             # Save keypoints
             keypoints = extract_keypoints(hand_results, face_results, pose_results)
             save_path = os.path.join(DATA_PATH, sign, str(seq), str(frame_num))
-<<<<<<< HEAD
-            if np.sum(keypoints) == 0:
-                continue  # skip useless frame
+            np.save(save_path, keypoints)
 
-=======
->>>>>>> 2c383ee2c00e73545b0df12cd499f5186665dc52
-1], 120), (0, 0, 0), -1)
+            # UI
+            cv2.rectangle(frame, (0, 0), (frame.shape[1], 120), (0, 0, 0), -1)
             cv2.putText(frame, f'Sign: {sign.upper()}  |  Set: {seq+1}/{SEQUENCES}',
                         (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 200), 2)
             cv2.putText(frame, f'Frame {frame_num+1}/{SEQUENCE_LENGTH}',
