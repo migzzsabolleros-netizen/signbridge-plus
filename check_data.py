@@ -1,7 +1,7 @@
 import numpy as np
 import os
 
-SIGNS = ['good_morning', 'good_afternoon', 'good_evening']
+SIGNS = ['a', 'b', 'c', 'd', 'e']
 DATA_PATH = 'dataset'
 
 for sign in SIGNS:

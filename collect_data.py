@@ -5,9 +5,9 @@ import os
 import time
 
 # ---- SETTINGS ----
-SIGNS = ['f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z']
-SEQUENCES = 60
-SEQUENCE_LENGTH = 30
+SIGNS = ['a', 'b', 'c', 'd', 'e']  # Add more signs as needed
+SEQUENCES = 30
+SEQUENCE_LENGTH = 40
 
 DATA_PATH = 'dataset'
 BREAK_SECONDS = 60  # 1 minute break between signs
@@ -42,15 +42,21 @@ def extract_keypoints(hand_results, face_results, pose_results):
         pose_kp = np.array([[lm.x, lm.y, lm.z, lm.visibility]
                              for lm in pose_results.pose_landmarks.landmark]).flatten()
 
-    face_kp = np.zeros(1404)
+    # REDUCED FACE: Only 6 key points for hand-to-face proximity detection
+    # These are: nose tip, chin, left cheek, right cheek, left eye, right eye
+    # Total: 6 points * 3 coords = 18 features (instead of 1404)
+    face_kp = np.zeros(18)
     if face_results.multi_face_landmarks:
-        face_kp = np.array([[lm.x, lm.y, lm.z]
-                             for lm in face_results.multi_face_landmarks[0].landmark]).flatten()
+        landmarks = face_results.multi_face_landmarks[0].landmark
+        # Key points for detecting hand-to-face contact
+        key_indices = [1, 152, 234, 454, 33, 263]  # nose, chin, cheeks, eyes
+        face_kp = np.array([[landmarks[i].x, landmarks[i].y, landmarks[i].z] 
+                             for i in key_indices]).flatten()
 
     return np.concatenate([lh, rh, pose_kp, face_kp])
 
 # ---- CAPTURE LOOP ----
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 
 for sign_idx, sign in enumerate(SIGNS):
 

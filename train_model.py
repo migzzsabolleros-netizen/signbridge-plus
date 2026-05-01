@@ -3,14 +3,14 @@ import os
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Conv1D, MaxPooling1D, Flatten, BatchNormalization
 from tensorflow.keras.callbacks import TensorBoard, EarlyStopping
 import matplotlib.pyplot as plt
 
 # ---- SETTINGS (must match collect_data.py) ----
-SIGNS = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q']
+SIGNS = ['a', 'b', 'c', 'd', 'e']
 SEQUENCES = 30
-SEQUENCE_LENGTH = 30
+SEQUENCE_LENGTH = 40
 DATA_PATH = 'dataset'
 
 # ---- LOAD DATA ----
@@ -29,21 +29,41 @@ for sign in SIGNS:
 
 X = np.array(X)
 y = to_categorical(y, num_classes=len(SIGNS))
-print(f'Dataset shape: {X.shape}')  # should be (150, 30, 1662)
+print(f'Dataset shape: {X.shape}')  # should be (150, 30, 276)
 
 # ---- SPLIT ----
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# ---- BUILD MODEL ----
+# ---- BUILD MODEL (1D CNN - better for gesture recognition) ----
 model = Sequential([
-    LSTM(64, return_sequences=True, activation='relu', input_shape=(SEQUENCE_LENGTH, 1662)),
-    Dropout(0.2),
-    LSTM(128, return_sequences=True, activation='relu'),
-    Dropout(0.2),
-    LSTM(64, return_sequences=False, activation='relu'),
+    # Conv block 1
+    Conv1D(64, 3, activation='relu', input_shape=(SEQUENCE_LENGTH, 276), padding='same'),
+    BatchNormalization(),
+    Conv1D(64, 3, activation='relu', padding='same'),
+    BatchNormalization(),
+    MaxPooling1D(2),
+    Dropout(0.3),
+    
+    # Conv block 2
+    Conv1D(128, 3, activation='relu', padding='same'),
+    BatchNormalization(),
+    Conv1D(128, 3, activation='relu', padding='same'),
+    BatchNormalization(),
+    MaxPooling1D(2),
+    Dropout(0.3),
+    
+    # Conv block 3
+    Conv1D(256, 3, activation='relu', padding='same'),
+    BatchNormalization(),
+    MaxPooling1D(2),
+    Dropout(0.3),
+    
+    # Dense layers
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.4),
     Dense(64, activation='relu'),
-    Dropout(0.2),
-    Dense(32, activation='relu'),
+    Dropout(0.3),
     Dense(len(SIGNS), activation='softmax')
 ])
 
@@ -53,13 +73,14 @@ model.summary()
 # ---- TRAIN ----
 callbacks = [
     TensorBoard(log_dir='logs'),
-    EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+    EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True)
 ]
 
 print('\nTraining...')
 history = model.fit(
     X_train, y_train,
-    epochs=100,
+    epochs=300,
+    batch_size=16,
     validation_data=(X_test, y_test),
     callbacks=callbacks
 )
