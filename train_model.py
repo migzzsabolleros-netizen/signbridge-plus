@@ -8,8 +8,13 @@ from tensorflow.keras.callbacks import TensorBoard, EarlyStopping
 import matplotlib.pyplot as plt
 
 # ---- SETTINGS (must match collect_data.py) ----
+<<<<<<< HEAD
 SIGNS = ['pamilya','lola','lolo','mama','papa']
 SEQUENCES = 60
+=======
+SIGNS = ['good_morning', 'good_afternoon', 'good_evening']
+SEQUENCES = 30
+>>>>>>> 2c383ee2c00e73545b0df12cd499f5186665dc52
 SEQUENCE_LENGTH = 30
 DATA_PATH = 'dataset'
 

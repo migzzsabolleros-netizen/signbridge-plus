@@ -1,7 +1,11 @@
 import numpy as np
 import os
 
+<<<<<<< HEAD
 SIGNS = ['pamilya','lola','lolo','mama','papa']
+=======
+SIGNS = ['good_morning', 'good_afternoon', 'good_evening']
+>>>>>>> 2c383ee2c00e73545b0df12cd499f5186665dc52
 DATA_PATH = 'dataset'
 
 for sign in SIGNS:
