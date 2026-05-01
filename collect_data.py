@@ -5,11 +5,12 @@ import os
 import time
 
 # ---- SETTINGS ----
-SIGNS = ['good_morning', 'good_afternoon', 'good_evening']  # your FSL vocabulary
-SEQUENCES = 30       # 30 videos per sign
-SEQUENCE_LENGTH = 30 # 30 frames per video
+SIGNS = ['a', 'b', 'c', 'd', 'e']
+SEQUENCES = 60
+SEQUENCE_LENGTH = 30
 
 DATA_PATH = 'dataset'
+BREAK_SECONDS = 60  # 1 minute break between signs
 
 # ---- SETUP ----
 mp_hands = mp.solutions.hands
@@ -27,7 +28,6 @@ for sign in SIGNS:
         os.makedirs(os.path.join(DATA_PATH, sign, str(seq)), exist_ok=True)
 
 def extract_keypoints(hand_results, face_results, pose_results):
-    # Hands (21 landmarks x 3 coords x 2 hands = 126 values)
     lh = np.zeros(63)
     rh = np.zeros(63)
     if hand_results.multi_hand_landmarks:
@@ -37,35 +37,46 @@ def extract_keypoints(hand_results, face_results, pose_results):
             if label == 'Left':  lh = arr
             else:                rh = arr
 
-    # Pose (33 landmarks x 4 coords = 132 values)
     pose_kp = np.zeros(132)
     if pose_results.pose_landmarks:
         pose_kp = np.array([[lm.x, lm.y, lm.z, lm.visibility]
                              for lm in pose_results.pose_landmarks.landmark]).flatten()
 
-    # Face (468 landmarks x 3 coords = 1404 values)
     face_kp = np.zeros(1404)
     if face_results.multi_face_landmarks:
         face_kp = np.array([[lm.x, lm.y, lm.z]
                              for lm in face_results.multi_face_landmarks[0].landmark]).flatten()
 
-    return np.concatenate([lh, rh, pose_kp, face_kp])  # 1662 total values
+    return np.concatenate([lh, rh, pose_kp, face_kp])
 
 # ---- CAPTURE LOOP ----
 cap = cv2.VideoCapture(1)
 
-for sign in SIGNS:
+for sign_idx, sign in enumerate(SIGNS):
+
+    # ---- SIGN INTRO SCREEN ----
+    for _ in range(30):
+        ret, frame = cap.read()
+        frame = cv2.flip(frame, 1)
+        cv2.rectangle(frame, (0, 0), (frame.shape[1], 120), (0, 0, 0), -1)
+        cv2.putText(frame, f'NEXT SIGN: {sign.upper()}',
+                    (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 200), 3)
+        cv2.putText(frame, f'Sign {sign_idx+1} of {len(SIGNS)}  |  Get in position!',
+                    (10, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.imshow('Collecting Data', frame)
+        cv2.waitKey(100)
+
     for seq in range(SEQUENCES):
 
         # Countdown before each sequence
         for countdown in range(3, 0, -1):
             ret, frame = cap.read()
             frame = cv2.flip(frame, 1)
-            cv2.rectangle(frame, (0,0), (640, 80), (0,0,0), -1)
+            cv2.rectangle(frame, (0, 0), (frame.shape[1], 120), (0, 0, 0), -1)
             cv2.putText(frame, f'Sign: {sign.upper()}  |  Set: {seq+1}/{SEQUENCES}',
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,200), 2)
+                        (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 200), 2)
             cv2.putText(frame, f'Get ready... {countdown}',
-                        (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,200,255), 2)
+                        (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
             cv2.imshow('Collecting Data', frame)
             cv2.waitKey(1000)
 
@@ -97,16 +108,42 @@ for sign in SIGNS:
             np.save(save_path, keypoints)
 
             # UI
-            cv2.rectangle(frame, (0,0), (640, 80), (0,0,0), -1)
+            cv2.rectangle(frame, (0, 0), (frame.shape[1], 120), (0, 0, 0), -1)
             cv2.putText(frame, f'Sign: {sign.upper()}  |  Set: {seq+1}/{SEQUENCES}',
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,200), 2)
+                        (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 200), 2)
             cv2.putText(frame, f'Frame {frame_num+1}/{SEQUENCE_LENGTH}',
-                        (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
+                        (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
+            # Warn if no hands detected
+            if not hand_results.multi_hand_landmarks:
+                cv2.putText(frame, '⚠ NO HANDS DETECTED',
+                            (10, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
             cv2.imshow('Collecting Data', frame)
             cv2.waitKey(1)
 
-        print(f'✅ Saved: {sign} | set {seq+1}')
+        print(f'✅ Saved: {sign} | set {seq+1}/{SEQUENCES}')
+
+    print(f'\n🎉 Done collecting: {sign.upper()}')
+
+    # ---- BREAK SCREEN (skip after last sign) ----
+    if sign_idx < len(SIGNS) - 1:
+        print(f'💤 Take a {BREAK_SECONDS} second break...')
+        for remaining in range(BREAK_SECONDS, 0, -1):
+            ret, frame = cap.read()
+            frame = cv2.flip(frame, 1)
+            cv2.rectangle(frame, (0, 0), (frame.shape[1], 160), (0, 0, 0), -1)
+            cv2.putText(frame, '💤 BREAK TIME! Rest your hands.',
+                        (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 200), 2)
+            cv2.putText(frame, f'Next sign: {SIGNS[sign_idx+1].upper()}',
+                        (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2)
+            cv2.putText(frame, f'Starting in: {remaining}s',
+                        (10, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
+            cv2.imshow('Collecting Data', frame)
+            cv2.waitKey(1000)
+            print(f'\r⏳ Next sign in: {remaining}s ', end='')
+        print('\n')
 
 cap.release()
 cv2.destroyAllWindows()
-print('\n🎉 Data collection complete!')
+print('\n🎉 All signs collected! Run check_data.py to verify.')
