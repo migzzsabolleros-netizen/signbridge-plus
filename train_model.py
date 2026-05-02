@@ -8,7 +8,7 @@ from tensorflow.keras.callbacks import TensorBoard, EarlyStopping
 import matplotlib.pyplot as plt
 
 # ---- SETTINGS (must match collect_data.py) ----
-SIGNS = ['a', 'b', 'c', 'd', 'e']
+SIGNS = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','pamilya', 'lola', 'lolo', 'mama', 'papa','Ako ay mabuti','Hindi masama','Kamusta ang buhay','Kamusta kana','Mabuti ako','Magaling ako','Masama ang aking pakiramdam','Okay lang ako']  # Add more signs as needed
 SEQUENCES = 30
 SEQUENCE_LENGTH = 40
 DATA_PATH = 'dataset'
