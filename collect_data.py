@@ -5,7 +5,7 @@ import os
 import time
 
 # ---- SETTINGS ----
-SIGNS = ['a', 'b', 'c', 'd', 'e']  # Add more signs as needed
+SIGNS = ['pamilya', 'lola', 'lolo', 'mama', 'papa']  # Add more signs as needed
 SEQUENCES = 30
 SEQUENCE_LENGTH = 40
 
@@ -43,8 +43,6 @@ def extract_keypoints(hand_results, face_results, pose_results):
                              for lm in pose_results.pose_landmarks.landmark]).flatten()
 
     # REDUCED FACE: Only 6 key points for hand-to-face proximity detection
-    # These are: nose tip, chin, left cheek, right cheek, left eye, right eye
-    # Total: 6 points * 3 coords = 18 features (instead of 1404)
     face_kp = np.zeros(18)
     if face_results.multi_face_landmarks:
         landmarks = face_results.multi_face_landmarks[0].landmark
@@ -56,7 +54,7 @@ def extract_keypoints(hand_results, face_results, pose_results):
     return np.concatenate([lh, rh, pose_kp, face_kp])
 
 # ---- CAPTURE LOOP ----
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 for sign_idx, sign in enumerate(SIGNS):
 
