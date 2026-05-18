@@ -5,7 +5,7 @@ import os
 import time
 
 # ---- SETTINGS ----
-SIGNS = ['pamilya', 'lola', 'lolo', 'mama', 'papa']  # Add more signs as needed
+SIGNS = ['']  # Add more signs as needed
 SEQUENCES = 30
 SEQUENCE_LENGTH = 40
 

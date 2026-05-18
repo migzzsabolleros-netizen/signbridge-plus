@@ -108,7 +108,10 @@ def process_fingers(hand_landmarks, label, data):
 def capture_loop():
     global latest_frame
     cap = cv2.VideoCapture(1)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to minimize latency
     ref_down = np.array([0.0, -1.0, 0.0])
+    frame_count = 0
+    display_count = 0
 
     while True:
         ret, frame = cap.read()
@@ -195,12 +198,24 @@ def capture_loop():
 
 def generate_frames():
     global latest_frame
+    frame_skip = 0
+    skip_rate = 2  # Send every 2nd frame to reduce bandwidth
+    
     while True:
         with frame_lock:
             if latest_frame is None:
                 continue
-            _, buffer = cv2.imencode('.jpg', latest_frame,
-                                     [cv2.IMWRITE_JPEG_QUALITY, 80])
+            frame_to_send = latest_frame.copy()
+        
+        # Skip frames to reduce server load
+        frame_skip += 1
+        if frame_skip < skip_rate:
+            continue
+        frame_skip = 0
+        
+        # Compress with lower quality for faster transmission
+        _, buffer = cv2.imencode('.jpg', frame_to_send,
+                                 [cv2.IMWRITE_JPEG_QUALITY, 60])
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' +
                buffer.tobytes() + b'\r\n')
 

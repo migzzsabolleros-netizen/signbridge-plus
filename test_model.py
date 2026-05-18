@@ -8,14 +8,21 @@ import threading
 app = Flask(__name__)
 
 # ---- SETTINGS ----
-SIGNS = ['pamilya', 'lola', 'lolo', 'mama', 'papa']
+SIGNS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+         'Ako', 'Ako ay mabuti', 'Alin', 'Ano', 'Bakit', 'Basahin', 'Because', 'Estudyante', 'Guro', 'Hello', 'Hindi masama', 'Ikaw', 'Kailan',
+         'Kaklase', 'Kamusta ang buhay', 'Kamusta kana', 'Klase', 'lola', 'lolo', 'Mabuti ako', 'Mag-aral', 'Magaling ako', 'Maghintay',
+         'mama', 'Masama ang aking pakiramdam', 'Mula sa', 'No', 'Okay lang ako', 'Opo', 'pamilya', 'papa', 'Saan', 'Salamat po', 'Siguro',
+         'Sila', 'Sino', 'Siya', 'Walang anuman']
 SEQUENCE_LENGTH = 40
-THRESHOLD = 0.7
+THRESHOLD = 0.5  # Lowered from 0.7 for better detection
+TEMPORAL_SMOOTHING = 3  # Average predictions over N frames
 
 # ---- Load Model ----
 print("Loading model...")
 model = tf.keras.models.load_model('signbridge_model.keras')
 print("✅ Model loaded!")
+print(f"Model output size: {model.output_shape}")
+print(f"Number of SIGNS: {len(SIGNS)}")
 
 # ---- MediaPipe ----
 mp_hands = mp.solutions.hands
@@ -32,6 +39,8 @@ latest_frame     = None
 frame_lock       = threading.Lock()
 prediction_state = {'sign': '', 'confidence': 0.0, 'sentence': [], 'history': []}
 sequence         = []
+sequence_debug   = []  # For debugging keypoint changes
+prediction_history = []  # For temporal smoothing
 
 def extract_keypoints(hand_res, face_res, pose_res):
     lh = np.zeros(63)
@@ -57,7 +66,7 @@ def extract_keypoints(hand_res, face_res, pose_res):
     return np.concatenate([lh, rh, pose_kp, face_kp])
 
 def capture_loop():
-    global latest_frame, sequence
+    global latest_frame, sequence, prediction_history
     cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -111,16 +120,70 @@ def capture_loop():
 
         # Predict every 3rd frame
         if len(sequence) == SEQUENCE_LENGTH and frame_count % 3 == 0:
-            try:
-                input_data = np.expand_dims(sequence, axis=0)
-                prediction = model.predict(input_data, verbose=0)[0]
-                idx        = np.argmax(prediction)
-                confidence = float(prediction[idx])
-                sign       = SIGNS[idx] if confidence > THRESHOLD else ''
-            except Exception as e:
-                print(f"❌ Prediction error: {e}")
-                sign       = ''
+            # Only predict if hands are detected
+            if not hand_res.multi_hand_landmarks:
+                print("⚠️ No hands detected - skipping prediction")
+                sign = ''
                 confidence = 0.0
+            else:
+                try:
+                    input_data = np.array(sequence)
+                    
+                    # Validate data
+                    if np.any(np.isnan(input_data)):
+                        print("⚠️ NaN values detected in keypoints")
+                        sign = ''
+                        confidence = 0.0
+                    else:
+                        # Apply same preprocessing as training
+                        input_data = np.expand_dims(input_data, axis=0)
+                        input_data[:, :, 0:126] *= 4.0      # Hand keypoints: 4x weight
+                        input_data[:, :, 258:276] *= 0.05   # Face keypoints: 0.05x weight
+                        
+                        prediction = model.predict(input_data, verbose=0)[0]
+                        
+                        # Validate prediction matches SIGNS count
+                        if len(prediction) != len(SIGNS):
+                            print(f"❌ Model output size mismatch: {len(prediction)} vs {len(SIGNS)} SIGNS")
+                            sign = ''
+                            confidence = 0.0
+                        else:
+                            # Get top 3 predictions
+                            top_3_indices = np.argsort(prediction)[-3:][::-1]
+                            print(f"\n📊 Top 3 predictions:")
+                            for rank, idx in enumerate(top_3_indices, 1):
+                                if idx < len(SIGNS):
+                                    conf = float(prediction[idx])
+                                    print(f"   {rank}. {SIGNS[idx]:35} ({conf:.2%})")
+                            
+                            # Add to history for temporal smoothing
+                            prediction_history.append(prediction.copy())
+                            prediction_history = prediction_history[-TEMPORAL_SMOOTHING:]
+                            
+                            # Average predictions over time
+                            smoothed_prediction = np.mean(prediction_history, axis=0)
+                            idx = np.argmax(smoothed_prediction)
+                            confidence = float(smoothed_prediction[idx])
+                            
+                            # Bounds check
+                            if idx >= len(SIGNS):
+                                print(f"⚠️ Model predicted index {idx} but only {len(SIGNS)} signs available")
+                                sign = ''
+                                confidence = 0.0
+                            else:
+                                sign = SIGNS[idx] if confidence > THRESHOLD else ''
+                                print(f"✅ Final (smoothed): {sign} ({confidence:.2%})")
+                                
+                                # Debug: Show keypoint info
+                                hand_count = len(hand_res.multi_hand_landmarks) if hand_res.multi_hand_landmarks else 0
+                                pose_detected = "Yes" if pose_res.pose_landmarks else "No"
+                                print(f"   Hands detected: {hand_count} | Pose: {pose_detected}")
+                except Exception as e:
+                    print(f"❌ Prediction error: {type(e).__name__}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    sign       = ''
+                    confidence = 0.0
 
             if sign and (not prediction_state['sentence'] or
                          prediction_state['sentence'][-1] != sign):

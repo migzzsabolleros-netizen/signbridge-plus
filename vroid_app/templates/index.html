@@ -23,7 +23,7 @@
     #cam-header { padding:10px 14px; border-bottom:1px solid #1c2a3a; font-size:0.7rem; letter-spacing:0.15em; text-transform:uppercase; color:#4b6280; display:flex; align-items:center; gap:8px; }
     .live-dot { width:7px; height:7px; border-radius:50%; background:#ef4444; animation:pulse 1.2s infinite; }
     @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }
-    #cam-feed { width:100%; aspect-ratio:4/3; object-fit:cover; background:#060910; }
+    #cam-feed { width:100%; aspect-ratio:4/3; object-fit:cover; background:#060910; image-rendering:auto; }
     #landmarks-info { padding:12px 14px; flex:1; display:flex; flex-direction:column; gap:8px; }
     .info-row { display:flex; align-items:center; justify-content:space-between; font-size:0.75rem; }
     .info-label { color:#4b6280; }
@@ -80,6 +80,11 @@
   import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
   import { VRMLoaderPlugin, VRMUtils } from 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@1/lib/three-vrm.module.js';
 
+  // Check if libraries loaded
+  console.log('THREE version:', THREE.version);
+  console.log('VRMLoaderPlugin:', VRMLoaderPlugin);
+  console.log('VRMUtils:', VRMUtils);
+
   const canvas = document.getElementById('canvas');
   const wrap = document.getElementById('vrm-wrap');
 
@@ -113,7 +118,15 @@
 
   let currentVRM = null;
   const loader = new GLTFLoader();
-  loader.register(parser => new VRMLoaderPlugin(parser));
+  
+  // Register VRM plugin
+  try {
+    loader.register(parser => new VRMLoaderPlugin(parser));
+    log('✓ VRM plugin registered');
+  } catch (err) {
+    log('❌ VRM plugin registration failed: ' + err.message);
+    console.error('VRM Plugin Error:', err);
+  }
 
   function log(msg) {
     const el = document.getElementById('debug-log');
@@ -133,35 +146,109 @@
     input.onchange = (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      
+      // Validate file size (VRMs should typically be < 500MB)
+      if (file.size > 500 * 1024 * 1024) {
+        log('❌ File too large (max 500MB)');
+        document.getElementById('status').textContent = '❌ File too large';
+        return;
+      }
+      
       document.getElementById('status').textContent = 'Loading ' + file.name + '...';
       log('Loading: ' + file.name);
       const url = URL.createObjectURL(file);
+      
+      // Add timeout for loading
+      const loadTimeout = setTimeout(() => {
+        log('❌ Loading timeout - VRM file may be corrupted');
+        document.getElementById('status').textContent = '❌ Loading timeout';
+        URL.revokeObjectURL(url);
+      }, 30000);
+      
       loader.load(url,
         (gltf) => {
+          clearTimeout(loadTimeout);
+          
+          // Debug logging
+          log('📦 GLTF loaded. Checking userData...');
+          log('userData keys: ' + Object.keys(gltf.userData || {}).join(', '));
+          
           const vrm = gltf.userData.vrm;
-          if (!vrm) { log('❌ Not a valid VRM file'); return; }
+          if (!vrm) { 
+            log('⚠️ userData.vrm is null. Checking gltf structure...');
+            log('GLTF keys: ' + Object.keys(gltf).join(', '));
+            
+            // Try alternative extraction
+            if (gltf.scene) {
+              log('✓ Scene exists');
+            }
+            if (gltf.animations) {
+              log('✓ Has ' + gltf.animations.length + ' animations');
+            }
+            
+            log('❌ VRM plugin failed to parse - possible invalid VRM format'); 
+            document.getElementById('status').textContent = '❌ Invalid VRM file';
+            URL.revokeObjectURL(url);
+            return; 
+          }
+          
+          log('✓ VRM data found!');
+          
+          // Validate humanoid structure
+          if (!vrm.humanoid) {
+            log('❌ VRM missing humanoid structure');
+            document.getElementById('status').textContent = '❌ Invalid humanoid';
+            URL.revokeObjectURL(url);
+            return;
+          }
+          
+          log('✓ Humanoid structure validated');
+
           if (currentVRM) {
             scene.remove(currentVRM.scene);
             VRMUtils.deepDispose(currentVRM.scene);
           }
           currentVRM = vrm;
-          VRMUtils.removeUnnecessaryJoints(vrm.scene);
-          vrm.scene.rotation.y = Math.PI;
-          scene.add(vrm.scene);
-          document.getElementById('status').textContent = '✅ ' + file.name;
-          log('✅ Loaded: ' + file.name);
           
-          // Disable IK constraints if they exist
-          if (vrm.humanoid) {
-            log('🔓 Disabling constraints...');
-            const bones = vrm.humanoid.humanBones;
-            for (const boneName in bones) {
-              const bone = bones[boneName];
-              if (bone.node) {
-                bone.node.matrixAutoUpdate = true;
-              }
+          try {
+            // Step 1: Remove unnecessary vertices
+            try {
+              log('⏳ Step 1: Removing unnecessary vertices...');
+              VRMUtils.removeUnnecessaryVertices(vrm.scene);
+              log('✓ Vertices optimized');
+            } catch (e) {
+              log('⚠️ Vertex optimization failed: ' + e.message + ' (continuing anyway)');
             }
+            
+            // Step 2: Combine skeletons
+            try {
+              log('⏳ Step 2: Combining skeletons...');
+              VRMUtils.combineSkeletons(vrm.scene);
+              log('✓ Skeletons combined');
+            } catch (e) {
+              log('⚠️ Skeleton combine failed: ' + e.message + ' (continuing anyway)');
+            }
+            
+            // Step 3: Configure scene
+            log('⏳ Step 3: Configuring scene...');
+            vrm.scene.traverse((obj) => {
+              obj.frustumCulled = false;
+            });
+            // Rotate 180 degrees so model faces camera
+            vrm.scene.rotation.y = Math.PI;
+            scene.add(vrm.scene);
+            log('✓ Scene configured (rotated 180°)');
+            
+            document.getElementById('status').textContent = '✅ ' + file.name;
+            log('✅ Loaded: ' + file.name);
+          } catch (err) {
+            log('❌ Critical processing error: ' + err.message);
+            log('Stack: ' + (err.stack || 'N/A').split('\n')[1]);
+            document.getElementById('status').textContent = '❌ Processing failed';
+            console.error('Full error:', err);
           }
+          
+          URL.revokeObjectURL(url);
           
           log('⏳ Settling model (wait 1s)...');
           setTimeout(() => {
@@ -179,11 +266,22 @@
         },
         (progress) => {
           const pct = Math.round(progress.loaded / (progress.total || 1) * 100);
-          document.getElementById('status').textContent = 'Loading... ' + pct + '%';
+          if (pct < 100) {
+            document.getElementById('status').textContent = 'Loading... ' + pct + '%';
+          } else {
+            document.getElementById('status').textContent = 'Parsing VRM...';
+            log('📊 File loaded (100%). Parsing VRM data...');
+          }
         },
         (err) => {
+          clearTimeout(loadTimeout);
           document.getElementById('status').textContent = '❌ Failed';
-          log('❌ Error: ' + err.message);
+          log('❌ Load Error: ' + err.message);
+          if (err.stack) {
+            log('Stack: ' + err.stack.split('\n')[0]);
+          }
+          URL.revokeObjectURL(url);
+          console.error('Full VRM Load Error:', err);
         }
       );
     };
@@ -218,98 +316,159 @@
   };
 
   const socket = io();
-  socket.on('pose', (data) => {
-    // Disable idle animation when real pose data arrives
-    if (idleEnabled) {
-      disableIdleAnimation();
+  const tmpQuat = new THREE.Quaternion();
+  let fingerDebugLogged = false;
+  
+  const leftFingers = [
+  'leftIndexProximal',
+  'leftIndexIntermediate',
+  'leftIndexDistal',
+  'leftMiddleProximal',
+  'leftMiddleIntermediate',
+  'leftMiddleDistal',
+  'leftRingProximal',
+  'leftRingIntermediate',
+  'leftRingDistal',
+  'leftLittleProximal',
+  'leftLittleIntermediate',
+  'leftLittleDistal',
+  'leftThumbProximal',
+  'leftThumbMetacarpal',
+  'leftThumbDistal',
+];
+
+const rightFingers = [
+  'rightIndexProximal',
+  'rightIndexIntermediate',
+  'rightIndexDistal',
+  'rightMiddleProximal',
+  'rightMiddleIntermediate',
+  'rightMiddleDistal',
+  'rightRingProximal',
+  'rightRingIntermediate',
+  'rightRingDistal',
+  'rightLittleProximal',
+  'rightLittleIntermediate',
+  'rightLittleDistal',
+  'rightThumbProximal',
+  'rightThumbMetacarpal',
+  'rightThumbDistal',
+];
+
+
+
+function resolveBoneNode(boneName) {
+  if (!currentVRM?.humanoid) return null;
+  return (
+    currentVRM.humanoid.getNormalizedBoneNode(boneName) ||
+    currentVRM.humanoid?.humanBones?.[boneName]?.node ||
+    null
+  );
+}
+
+function rotateBone(boneName, quatArray, damp = 0.5, flip = { x: 1, y: 1, z: 1 }) {
+  if (!currentVRM?.humanoid || !quatArray) return;
+
+  const bone = resolveBoneNode(boneName);
+  if (!bone) {
+    // Only log non-finger bones (they're critical)
+    if (!boneName.includes('Proximal') && !boneName.includes('Intermediate') && !boneName.includes('Distal')) {
+      console.warn(`⚠️ Bone not found: ${boneName}`);
     }
-    
-    const hasFace = !!data.blendshapes;
-    const hasPose = !!data.RightUpperArm;
-    const hasFingers = !!data.rightIndexProximal || !!data.leftIndexProximal;
+    return;
+  }
 
-    // Debug log for pose
-    if (hasPose) log('🦾 Pose data received: RightUpperArm=' + (data.RightUpperArm ? '✓' : '✗'));
+  let x, y, z, w;
+  if (Array.isArray(quatArray) && quatArray.length === 4) {
+    [x, y, z, w] = quatArray;
+  } else if (quatArray && typeof quatArray === 'object') {
+    ({ x, y, z, w } = quatArray);
+  } else {
+    return;
+  }
 
-    document.getElementById('face-badge').className = 'badge ' + (hasFace ? 'badge-on' : 'badge-off');
-    document.getElementById('face-badge').textContent = hasFace ? 'ON' : 'OFF';
-    document.getElementById('pose-badge').className = 'badge ' + (hasPose ? 'badge-on' : 'badge-off');
-    document.getElementById('pose-badge').textContent = hasPose ? 'ON' : 'OFF';
-    document.getElementById('finger-badge').className = 'badge ' + (hasFingers ? 'badge-on' : 'badge-off');
-    document.getElementById('finger-badge').textContent = hasFingers ? 'ON' : 'OFF';
+  x *= flip.x;
+  y *= flip.y;
+  z *= flip.z;
 
-    if (data.blendshapes) {
-      document.getElementById('mouth-val').textContent = (data.blendshapes.A || 0).toFixed(2);
-      document.getElementById('blink-val').textContent =
-        (data.blendshapes.Blink_L || 0).toFixed(2) + ' / ' + (data.blendshapes.Blink_R || 0).toFixed(2);
-    }
-    if (data.RightUpperArm) {
-      const [x, y] = data.RightUpperArm;
-      document.getElementById('rarm-val').textContent = x.toFixed(2) + ', ' + y.toFixed(2);
-    }
-    if (data.LeftUpperArm) {
-      const [x, y] = data.LeftUpperArm;
-      document.getElementById('larm-val').textContent = x.toFixed(2) + ', ' + y.toFixed(2);
-    }
+  tmpQuat.set(x, y, z, w);
+  tmpQuat.normalize();
+  bone.quaternion.slerp(tmpQuat, damp);
+}
 
-    if (!currentVRM) return;
-    const bones = currentVRM.humanoid?.humanBones;
-    if (!bones) return;
+socket.on('pose', (data) => {
+  // Disable idle animation when real pose data arrives
+  idleEnabled = false;
 
-    const boneMap = {
-      'RightUpperArm': 'rightUpperArm', 'RightLowerArm': 'rightLowerArm',
-      'LeftUpperArm': 'leftUpperArm', 'LeftLowerArm': 'leftLowerArm',
-      'Head': 'head',
-    };
-    let appliedCount = 0;
-    for (const [pyName, vrmName] of Object.entries(boneMap)) {
-      if (data[pyName] && bones[vrmName]) {
-        let [qx, qy, qz, qw] = data[pyName];
-        const bone = bones[vrmName];
-        
-        // Try conjugate (negate xyz) in case it's a coordinate system issue
-        qx = -qx;
-        qy = -qy;
-        qz = -qz;
-        
-        bone.node.quaternion.set(qx, qy, qz, qw);
-        bone.node.updateMatrix();
-        bone.node.updateMatrixWorld(true);
-        
-        if (pyName === 'RightUpperArm') {
-          log('➡️ ' + vrmName + ' conjugate: (' + qx.toFixed(2) + ',' + qy.toFixed(2) + ',' + qz.toFixed(2) + ',' + qw.toFixed(2) + ')');
-        }
-        appliedCount++;
-      }
-    }
-    if (appliedCount > 0) log('🦴 Applied ' + appliedCount + ' bones (conjugate)');
+  const hasFace = !!data.blendshapes;
+  const hasPose = !!data.RightUpperArm;
+  const hasFingers = !!data.rightIndexProximal || !!data.leftIndexProximal;
+  
+  // Debug: Log available hand bones first time fingers detected
+  if (hasFingers && !fingerDebugLogged && currentVRM?.humanoid) {
+    fingerDebugLogged = true;
+    const allBones = Object.keys(currentVRM.humanoid.humanBones || {});
+    const fingerBonesInVRM = allBones.filter(b => b.includes('Index') || b.includes('Middle') || b.includes('Ring') || b.includes('Little') || b.includes('Thumb'));
+    console.log('🤚 Hand bones in VRM:', fingerBonesInVRM);
+    console.log('📨 Received finger data keys:', Object.keys(data).filter(k => k.includes('Proximal') || k.includes('Intermediate') || k.includes('Distal')));
+  }
 
-    for (const serverName in fingerBoneMap) {
-      if (data[serverName]) {
-        const vrmBoneName = fingerBoneMap[serverName];
-        if (bones[vrmBoneName]) {
-          const [qx, qy, qz, qw] = data[serverName];
-          bones[vrmBoneName].node.quaternion.set(qx, qy, qz, qw);
-        }
-      }
-    }
+  document.getElementById('face-badge').className = 'badge ' + (hasFace ? 'badge-on' : 'badge-off');
+  document.getElementById('face-badge').textContent = hasFace ? 'ON' : 'OFF';
+  document.getElementById('pose-badge').className = 'badge ' + (hasPose ? 'badge-on' : 'badge-off');
+  document.getElementById('pose-badge').textContent = hasPose ? 'ON' : 'OFF';
+  document.getElementById('finger-badge').className = 'badge ' + (hasFingers ? 'badge-on' : 'badge-off');
+  document.getElementById('finger-badge').textContent = hasFingers ? 'ON' : 'OFF';
 
-    if (data.blendshapes && currentVRM.expressionManager) {
-      const em = currentVRM.expressionManager;
-      try {
-        em.setValue('aa', data.blendshapes.A || 0);
-        em.setValue('blinkLeft', data.blendshapes.Blink_L || 0);
-        em.setValue('blinkRight', data.blendshapes.Blink_R || 0);
-      } catch (e) { }
+  if (data.blendshapes) {
+    document.getElementById('mouth-val').textContent = (data.blendshapes.A || 0).toFixed(2);
+    document.getElementById('blink-val').textContent =
+      (data.blendshapes.Blink_L || 0).toFixed(2) + ' / ' + (data.blendshapes.Blink_R || 0).toFixed(2);
+  }
+  if (data.RightUpperArm) {
+    const [x, y] = data.RightUpperArm;
+    document.getElementById('rarm-val').textContent = x.toFixed(2) + ', ' + y.toFixed(2);
+  }
+  if (data.LeftUpperArm) {
+    const [x, y] = data.LeftUpperArm;
+    document.getElementById('larm-val').textContent = x.toFixed(2) + ', ' + y.toFixed(2);
+  }
+
+  if (!currentVRM || !currentVRM.humanoid) return;
+
+  rotateBone('leftUpperArm', data.LeftUpperArm, 0.35);
+  rotateBone('leftLowerArm', data.LeftLowerArm, 0.35);
+  rotateBone('rightUpperArm', data.RightUpperArm, 0.35);
+  rotateBone('rightLowerArm', data.RightLowerArm, 0.35);
+  rotateBone('neck', data.Head, 0.25, { x: 0.7, y: 0.7, z: 0.7 });
+
+  leftFingers.forEach((bone) => {
+    if (data[bone]) {
+      rotateBone(bone, data[bone], 0.45);
     }
   });
 
-  socket.on('translation', (data) => {
-    document.getElementById('translation').textContent = data.text;
+  rightFingers.forEach((bone) => {
+    if (data[bone]) {
+      rotateBone(bone, data[bone], 0.45);
+    }
   });
+
+  if (data.blendshapes && currentVRM.expressionManager) {
+    const em = currentVRM.expressionManager;
+    try { em.setValue('aa', data.blendshapes.A || 0); } catch (e) {}
+    try { em.setValue('blinkLeft', data.blendshapes.Blink_L || 0); } catch (e) {}
+    try { em.setValue('blinkRight', data.blendshapes.Blink_R || 0); } catch (e) {}
+  }
+});
+
+socket.on('translation', (data) => {
+  document.getElementById('translation').textContent = data.text;
+});
 
   const clock = new THREE.Clock();
   let idleEnabled = true;
+  let renderCount = 0;
   
   function applyIdleAnimation(vrm, time) {
     if (!vrm || !idleEnabled) return;
@@ -369,10 +528,23 @@
     const elapsed = clock.getElapsedTime();
     
     if (currentVRM) {
-      applyIdleAnimation(currentVRM, elapsed);
-      currentVRM.update(delta);
+      if (idleEnabled) {
+  applyIdleAnimation(currentVRM, elapsed);
+}
+ currentVRM.scene.updateMatrixWorld(true);     
+
+currentVRM.update(delta);
     }
     renderer.render(scene, camera);
+    renderCount++;
+    
+    // Log performance every 300 frames
+    if (renderCount % 300 === 0) {
+      const fps = Math.round(1 / delta);
+      if (fps < 30) {
+        console.warn(`⚠️ Low FPS: ${fps}`);
+      }
+    }
   }
   animate();
 </script>
