@@ -31,12 +31,42 @@ from sign_features import extract_keypoints
 mp_hands = mp.solutions.hands
 mp_pose = mp.solutions.pose
 mp_draw = mp.solutions.drawing_utils
+COUNTDOWN_SECONDS = 2
 
 
 def next_sequence_index(sign_dir: Path) -> int:
     sign_dir.mkdir(parents=True, exist_ok=True)
     existing = [int(p.name) for p in sign_dir.iterdir() if p.is_dir() and p.name.isdigit()]
     return max(existing) + 1 if existing else 0
+
+
+def show_countdown(cap: cv2.VideoCapture, sign: str, seconds: int) -> bool:
+    end_time = time.monotonic() + seconds
+
+    while True:
+        remaining = end_time - time.monotonic()
+        if remaining <= 0:
+            return True
+
+        ret, frame = cap.read()
+        if not ret:
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                return False
+            continue
+
+        frame = cv2.flip(frame, 1)
+        countdown = int(remaining) + 1
+
+        cv2.putText(frame, f"Sign: {sign}", (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
+        cv2.putText(frame, "Get ready", (220, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
+        cv2.putText(frame, str(countdown), (295, 285), cv2.FONT_HERSHEY_SIMPLEX, 3.0, (0, 255, 255), 5)
+        cv2.putText(frame, "Press Q to quit", (10, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.imshow('SignBridge v2 Data Collection', frame)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            return False
 
 
 def collect_for_sign(sign: str, num_sequences: int, camera_index: int, output_dir: str) -> None:
@@ -92,11 +122,14 @@ def collect_for_sign(sign: str, num_sequences: int, camera_index: int, output_di
         if key != ord('s'):
             continue
 
+        print(f"Starting {COUNTDOWN_SECONDS}-second countdown for {sign} sequence {sequence_id}...")
+        if not show_countdown(cap, sign, COUNTDOWN_SECONDS):
+            break
+
         seq_dir = sign_dir / str(sequence_id)
         seq_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"Recording {sign} sequence {sequence_id}...")
-        time.sleep(0.5)
 
         frames_saved = 0
         while frames_saved < SEQUENCE_LENGTH:
